@@ -1,0 +1,4 @@
+.build/
+KleanKeyboard.app/
+*.xcodeproj/
+.DS_Store

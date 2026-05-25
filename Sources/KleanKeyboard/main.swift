@@ -241,6 +241,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let overlay = OverlayController()
 
     private var window: NSWindow!
+    private var blurb: NSTextField!
     private var keyboardCheck: NSButton!
     private var trackpadCheck: NSButton!
     private var escCheck: NSButton!
@@ -285,9 +286,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         heading.font = NSFont.systemFont(ofSize: 24, weight: .bold)
         heading.alignment = .center
 
-        let blurb = NSTextField(labelWithString:
-            "Pick what to disable so you can wipe it down.\n" +
-            "Press Esc any time to re-enable.")
+        blurb = NSTextField(labelWithString: "")
         blurb.font = NSFont.systemFont(ofSize: 13)
         blurb.textColor = .secondaryLabelColor
         blurb.alignment = .center
@@ -375,7 +374,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // only works while the mouse stays enabled). At least one must exist or
         // there'd be no way out of a session.
         let mouseStaysEnabled = trackpadCheck.state == .off
-        let canStop = escCheck.state == .on || timerOn || mouseStaysEnabled
+        let escOn = escCheck.state == .on
+        let canStop = escOn || timerOn || mouseStaysEnabled
+
+        var ways: [String] = []
+        if escOn { ways.append("press Esc") }
+        if mouseStaysEnabled { ways.append("click Stop") }
+        if ways.isEmpty {
+            blurb.stringValue = "Pick what to disable. It re-enables when the timer ends."
+        } else {
+            blurb.stringValue = "Pick what to disable. To re-enable: "
+                + ways.joined(separator: " or ") + "."
+        }
 
         if deviceSelected && !canStop {
             warningLabel.stringValue =

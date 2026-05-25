@@ -24,6 +24,9 @@ final class InputBlocker {
     var blockKeyboard = true
     var blockMouse = true
 
+    /// When true, Esc unlocks regardless of which devices are blocked.
+    var allowEscUnlock = true
+
     /// Called on the main thread when the user presses Esc while blocking.
     var onUnlockRequested: (() -> Void)?
 
@@ -95,9 +98,9 @@ final class InputBlocker {
             return Unmanaged.passUnretained(event)
         }
 
-        // Esc always unlocks, regardless of which devices are blocked. We swallow
-        // it so a stray Esc never lands in whatever app was focused.
-        if type == .keyDown {
+        // Esc unlocks (unless the user turned that off). We swallow it so a stray
+        // Esc never lands in whatever app was focused.
+        if allowEscUnlock, type == .keyDown {
             let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
             if keyCode == kEscapeKeyCode {
                 DispatchQueue.main.async { [weak self] in
@@ -240,9 +243,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var window: NSWindow!
     private var keyboardCheck: NSButton!
     private var trackpadCheck: NSButton!
+    private var escCheck: NSButton!
     private var timerCheck: NSButton!
     private var durationSlider: NSSlider!
     private var durationLabel: NSTextField!
+    private var warningLabel: NSTextField!
     private var startButton: NSButton!
 
     private var countdownTimer: Timer?
@@ -296,6 +301,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                  target: self, action: #selector(optionsChanged))
         trackpadCheck.state = .on
 
+        escCheck = NSButton(checkboxWithTitle: "Allow Esc to re-enable",
+                            target: self, action: #selector(optionsChanged))
+        escCheck.state = .on
+
         timerCheck = NSButton(checkboxWithTitle: "Auto re-enable after a time limit",
                               target: self, action: #selector(optionsChanged))
         timerCheck.state = .on
@@ -309,19 +318,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         durationSlider.translatesAutoresizingMaskIntoConstraints = false
         durationSlider.widthAnchor.constraint(equalToConstant: 340).isActive = true
 
+        warningLabel = NSTextField(labelWithString: "")
+        warningLabel.font = NSFont.systemFont(ofSize: 12, weight: .medium)
+        warningLabel.textColor = .systemRed
+        warningLabel.alignment = .center
+        warningLabel.maximumNumberOfLines = 0
+
         startButton = NSButton(title: "Start Cleaning", target: self,
                                action: #selector(startCleaning))
         startButton.bezelStyle = .rounded
         startButton.keyEquivalent = "\r"
         startButton.controlSize = .large
 
-        let checks = NSStackView(views: [keyboardCheck, trackpadCheck, timerCheck])
+        let checks = NSStackView(views: [keyboardCheck, trackpadCheck, escCheck, timerCheck])
         checks.orientation = .vertical
         checks.alignment = .leading
         checks.spacing = 8
 
         let stack = NSStackView(views: [
-            heading, blurb, checks, durationSlider, durationLabel, startButton
+            heading, blurb, checks, durationSlider, durationLabel, warningLabel, startButton
         ])
         stack.orientation = .vertical
         stack.alignment = .centerX
@@ -354,8 +369,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             durationLabel.stringValue = "No time limit — stop with Esc or the Stop button"
             durationLabel.textColor = .secondaryLabelColor
         }
-        // Need at least one device selected to start.
-        startButton.isEnabled = keyboardCheck.state == .on || trackpadCheck.state == .on
+        let deviceSelected = keyboardCheck.state == .on || trackpadCheck.state == .on
+
+        // Available stop mechanisms: Esc, the timer, or the Stop button (which
+        // only works while the mouse stays enabled). At least one must exist or
+        // there'd be no way out of a session.
+        let mouseStaysEnabled = trackpadCheck.state == .off
+        let canStop = escCheck.state == .on || timerOn || mouseStaysEnabled
+
+        if deviceSelected && !canStop {
+            warningLabel.stringValue =
+                "No way to stop selected. Allow Esc, set a time limit, or keep the mouse enabled."
+        } else {
+            warningLabel.stringValue = ""
+        }
+
+        startButton.isEnabled = deviceSelected && canStop
     }
 
     // MARK: Cleaning session
@@ -366,8 +395,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard blockKeyboard || blockMouse else { return }
         guard ensureAccessibilityPermission() else { return }
 
+        let allowEsc = escCheck.state == .on
         blocker.blockKeyboard = blockKeyboard
         blocker.blockMouse = blockMouse
+        blocker.allowEscUnlock = allowEsc
         guard blocker.start() else {
             presentError("Couldn't disable input. Make sure KleanKeyboard has " +
                          "Accessibility permission in System Settings.")
@@ -378,9 +409,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let showStopButton = !blockMouse
         let useTimer = timerCheck.state == .on
 
-        var ways = ["press Esc"]
+        var ways: [String] = []
+        if allowEsc { ways.append("press Esc") }
         if showStopButton { ways.append("click Stop") }
-        let hint = "To re-enable: " + ways.joined(separator: " or ") + "."
+        let hint: String
+        if ways.isEmpty {
+            hint = "Re-enables automatically when the timer ends."
+        } else {
+            hint = "To re-enable: " + ways.joined(separator: " or ") + "."
+        }
 
         let countdownText: String?
         if useTimer {

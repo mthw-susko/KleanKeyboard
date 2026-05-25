@@ -17,12 +17,17 @@ You choose what to disable and how it re-enables:
 - **both** (default).
 
 **How to re-enable** (any of these, whichever applies)
-- **Press `Esc`** — always works; caught by the app and never passed to other apps.
+- **Press `Esc`** — caught by the app and never passed to other apps. This can be
+  turned off (handy when you're cleaning the keyboard itself and don't want a
+  stray Esc to end the session).
 - **Click the Stop button** — shown in the overlay whenever the mouse stays
   enabled (i.e. "keyboard only" mode). This is the no-time-limit mouse mode:
   disable just the keyboard and click Stop when you're done.
 - **Wait for the countdown** — optional auto re-enable (10s–5min). Turn it off
   for no time limit.
+
+To avoid locking yourself out, the app won't start unless at least one stop
+method is available (Esc, a time limit, or the mouse staying enabled).
 
 This mirrors how the popular [KeyboardCleanTool](https://folivora.ai/keyboardcleantool)
 works (Esc to unlock), with selective toggles added.
@@ -56,11 +61,11 @@ rebuilds.
 
 1. Launch KleanKeyboard.
 2. Tick what you want to disable: **keyboard**, **trackpad & mouse**, or both.
-3. Optionally enable **Auto re-enable** and pick a time limit (or leave it off
-   for no time limit).
+3. Choose your stop method(s): keep **Allow Esc** on, enable a **time limit**,
+   and/or leave the mouse enabled for the **Stop** button.
 4. Click **Start Cleaning**. The screen dims and the chosen input is disabled.
-5. Clean away, then re-enable by pressing **`Esc`**, clicking **Stop** (mouse
-   mode), or letting the timer run out.
+5. Clean away, then re-enable however you set it up: press **`Esc`**, click
+   **Stop** (mouse mode), or let the timer run out.
 
 ## App icon
 

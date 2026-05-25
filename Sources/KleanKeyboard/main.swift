@@ -386,14 +386,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func refreshControls() {
         let timerOn = timerCheck.state == .on
-        durationSlider.isEnabled = timerOn
-        if timerOn {
-            durationLabel.stringValue = "Re-enables after \(formatTime(Int(durationSlider.doubleValue)))"
-            durationLabel.textColor = .labelColor
-        } else {
-            durationLabel.stringValue = "No time limit — stop with Esc or the Stop button"
-            durationLabel.textColor = .secondaryLabelColor
-        }
         let deviceSelected = keyboardCheck.state == .on || trackpadCheck.state == .on
 
         // Available stop mechanisms: Esc, the timer, or the Stop button (which
@@ -403,9 +395,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let escOn = escCheck.state == .on
         let canStop = escOn || timerOn || mouseStaysEnabled
 
+        // Manual (non-timer) stop methods, used in the on-screen hints.
         var ways: [String] = []
         if escOn { ways.append("press Esc") }
         if mouseStaysEnabled { ways.append("click Stop") }
+
+        durationSlider.isEnabled = timerOn
+        if timerOn {
+            durationLabel.stringValue = "Re-enables after \(formatTime(Int(durationSlider.doubleValue)))"
+            durationLabel.textColor = .labelColor
+        } else if ways.isEmpty {
+            durationLabel.stringValue = "No time limit"
+            durationLabel.textColor = .secondaryLabelColor
+        } else {
+            durationLabel.stringValue = "No time limit — stop with " + ways.joined(separator: " or ")
+            durationLabel.textColor = .secondaryLabelColor
+        }
+
         if ways.isEmpty {
             blurb.stringValue = "Pick what to disable. It re-enables when the timer ends."
         } else {

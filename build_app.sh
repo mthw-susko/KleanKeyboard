@@ -51,6 +51,16 @@ mkdir -p "${APP_BUNDLE}/Contents/Resources"
 cp "$BIN_PATH" "${APP_BUNDLE}/Contents/MacOS/${APP_NAME}"
 cp "Resources/Info.plist" "${APP_BUNDLE}/Contents/Info.plist"
 
+# App icon: build AppIcon.icns from the committed iconset (iconutil ships with macOS).
+if [[ -d "icon/AppIcon.iconset" ]]; then
+    echo "==> Building app icon..."
+    if iconutil -c icns "icon/AppIcon.iconset" -o "${APP_BUNDLE}/Contents/Resources/AppIcon.icns"; then
+        :
+    else
+        echo "   (iconutil failed — app will run without a custom icon)"
+    fi
+fi
+
 # Ad-hoc code signature so macOS keeps a stable identity for the Accessibility
 # permission grant across rebuilds (otherwise you'd have to re-authorize each time).
 echo "==> Ad-hoc signing..."

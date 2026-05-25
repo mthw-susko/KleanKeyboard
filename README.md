@@ -51,6 +51,16 @@ rebuilds.
 4. Clean your keyboard and trackpad.
 5. Press **`Esc`** when done (or let the timer run out).
 
+## App icon
+
+A cute pastel keyboard mascot. The icon assets live in `icon/AppIcon.iconset/`
+and `build_app.sh` compiles them into `AppIcon.icns` at build time. To tweak the
+design, edit `icon/make_icon.py` (needs `pip install Pillow`) and re-run it:
+
+```sh
+python3 icon/make_icon.py
+```
+
 ## Notes & limitations
 
 - The hardware power button and Touch ID cannot be intercepted by software, so

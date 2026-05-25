@@ -2,26 +2,41 @@ import AppKit
 import ApplicationServices
 import CoreGraphics
 
-// Escape key (virtual keycode) used as the unlock key while input is disabled.
+// Escape key (virtual keycode) used as the universal unlock key.
 private let kEscapeKeyCode: Int64 = 53
 
-// MARK: - Event tap that swallows keyboard + trackpad/mouse input
+private func isKeyboardEvent(_ type: CGEventType) -> Bool {
+    switch type {
+    case .keyDown, .keyUp, .flagsChanged:
+        return true
+    default:
+        return false
+    }
+}
+
+// MARK: - Event tap that selectively swallows keyboard and/or trackpad input
 
 final class InputBlocker {
     private var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
+
+    /// Which device categories to suppress for the current session.
+    var blockKeyboard = true
+    var blockMouse = true
 
     /// Called on the main thread when the user presses Esc while blocking.
     var onUnlockRequested: (() -> Void)?
 
     var isBlocking: Bool { eventTap != nil }
 
-    /// Mask covering keyboard, mouse, trackpad and gesture event types.
+    /// Mask covering keyboard, mouse, trackpad and gesture event types. We tap
+    /// everything and decide per-event what to drop, so a single tap serves all
+    /// toggle combinations.
     private static func eventMask() -> CGEventMask {
         var mask: CGEventMask = 0
         // Raw CGEventType values 1...34 cover mouse (1-7, 22-27), keyboard
         // (10-12) and trackpad gesture events (19-20, 29-34). null (0) and the
-        // tap-disabled sentinels (0xFFFFFFFE/F) are intentionally excluded.
+        // tap-disabled sentinels are intentionally excluded.
         for raw in 1...34 {
             mask |= (CGEventMask(1) << raw)
         }
@@ -80,8 +95,8 @@ final class InputBlocker {
             return Unmanaged.passUnretained(event)
         }
 
-        // Esc unlocks. We detect it here and swallow it so it never reaches the
-        // system (no stray Esc lands in whatever app was focused).
+        // Esc always unlocks, regardless of which devices are blocked. We swallow
+        // it so a stray Esc never lands in whatever app was focused.
         if type == .keyDown {
             let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
             if keyCode == kEscapeKeyCode {
@@ -92,9 +107,16 @@ final class InputBlocker {
             }
         }
 
-        // Everything else (all keys, clicks, movement, scroll, gestures) is dropped.
-        return nil
+        let shouldDrop = isKeyboardEvent(type) ? blockKeyboard : blockMouse
+        return shouldDrop ? nil : Unmanaged.passUnretained(event)
     }
+}
+
+// MARK: - Overlay window that can become key (so its Stop button is clickable)
+
+final class OverlayWindow: NSWindow {
+    override var canBecomeKey: Bool { true }
+    override var canBecomeMain: Bool { true }
 }
 
 // MARK: - Full-screen overlay shown while input is disabled
@@ -102,11 +124,21 @@ final class InputBlocker {
 final class OverlayController {
     private var windows: [NSWindow] = []
     private var countdownLabels: [NSTextField] = []
+    private var onStop: (() -> Void)?
 
-    func show(remainingText: String) {
+    func show(
+        title: String,
+        hint: String,
+        countdownText: String?,
+        showStopButton: Bool,
+        onStop: @escaping () -> Void
+    ) {
         guard windows.isEmpty else { return }
+        self.onStop = onStop
+        let mainScreen = NSScreen.main ?? NSScreen.screens.first
+
         for screen in NSScreen.screens {
-            let window = NSWindow(
+            let window = OverlayWindow(
                 contentRect: screen.frame,
                 styleMask: [.borderless],
                 backing: .buffered,
@@ -116,26 +148,35 @@ final class OverlayController {
             window.level = .screenSaver
             window.backgroundColor = NSColor.black.withAlphaComponent(0.9)
             window.isOpaque = false
-            window.ignoresMouseEvents = true
             window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
 
             let container = NSView(frame: screen.frame)
+            var views: [NSView] = []
 
-            let title = makeLabel(
-                "Keyboard & Trackpad Disabled",
-                size: 38,
-                weight: .bold,
-                color: .white
-            )
-            let countdown = makeLabel(remainingText, size: 64, weight: .semibold, color: .white)
-            let hint = makeLabel(
-                "Wipe away! Press  Esc  to re-enable.",
-                size: 22,
-                weight: .regular,
+            views.append(makeLabel(title, size: 38, weight: .bold, color: .white))
+
+            if let countdownText = countdownText {
+                let countdown = makeLabel(countdownText, size: 64, weight: .semibold, color: .white)
+                views.append(countdown)
+                countdownLabels.append(countdown)
+            }
+
+            views.append(makeLabel(
+                hint, size: 22, weight: .regular,
                 color: NSColor.white.withAlphaComponent(0.7)
-            )
+            ))
 
-            let stack = NSStackView(views: [title, countdown, hint])
+            // The clickable Stop button only goes on the main screen.
+            if showStopButton && screen == mainScreen {
+                let stop = NSButton(title: "Stop & Re-enable", target: self,
+                                    action: #selector(stopTapped))
+                stop.bezelStyle = .rounded
+                stop.controlSize = .large
+                stop.font = NSFont.systemFont(ofSize: 20, weight: .medium)
+                views.append(stop)
+            }
+
+            let stack = NSStackView(views: views)
             stack.orientation = .vertical
             stack.alignment = .centerX
             stack.spacing = 24
@@ -147,11 +188,18 @@ final class OverlayController {
             ])
 
             window.contentView = container
-            window.orderFrontRegardless()
+            if showStopButton && screen == mainScreen {
+                window.makeKeyAndOrderFront(nil)
+            } else {
+                window.orderFrontRegardless()
+            }
 
             windows.append(window)
-            countdownLabels.append(countdown)
         }
+    }
+
+    @objc private func stopTapped() {
+        onStop?()
     }
 
     func updateCountdown(_ text: String) {
@@ -166,6 +214,7 @@ final class OverlayController {
         }
         windows.removeAll()
         countdownLabels.removeAll()
+        onStop = nil
     }
 
     private func makeLabel(
@@ -189,6 +238,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let overlay = OverlayController()
 
     private var window: NSWindow!
+    private var keyboardCheck: NSButton!
+    private var trackpadCheck: NSButton!
+    private var timerCheck: NSButton!
     private var durationSlider: NSSlider!
     private var durationLabel: NSTextField!
     private var startButton: NSButton!
@@ -212,7 +264,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: UI
 
     private func buildMainWindow() {
-        let contentRect = NSRect(x: 0, y: 0, width: 420, height: 300)
+        let contentRect = NSRect(x: 0, y: 0, width: 440, height: 380)
         window = NSWindow(
             contentRect: contentRect,
             styleMask: [.titled, .closable, .miniaturizable],
@@ -224,27 +276,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let root = NSView(frame: contentRect)
 
-        let heading = NSTextField(labelWithString: "Clean Your Keyboard")
+        let heading = NSTextField(labelWithString: "Clean Your Mac")
         heading.font = NSFont.systemFont(ofSize: 24, weight: .bold)
         heading.alignment = .center
 
         let blurb = NSTextField(labelWithString:
-            "Disables the keyboard and trackpad so you can wipe them down.\n" +
-            "Press Esc at any time to re-enable.")
+            "Pick what to disable so you can wipe it down.\n" +
+            "Press Esc any time to re-enable.")
         blurb.font = NSFont.systemFont(ofSize: 13)
         blurb.textColor = .secondaryLabelColor
         blurb.alignment = .center
         blurb.maximumNumberOfLines = 0
 
+        keyboardCheck = NSButton(checkboxWithTitle: "Disable keyboard",
+                                 target: self, action: #selector(optionsChanged))
+        keyboardCheck.state = .on
+
+        trackpadCheck = NSButton(checkboxWithTitle: "Disable trackpad & mouse",
+                                 target: self, action: #selector(optionsChanged))
+        trackpadCheck.state = .on
+
+        timerCheck = NSButton(checkboxWithTitle: "Auto re-enable after a time limit",
+                              target: self, action: #selector(optionsChanged))
+        timerCheck.state = .on
+
         durationLabel = NSTextField(labelWithString: "")
-        durationLabel.font = NSFont.systemFont(ofSize: 14, weight: .medium)
+        durationLabel.font = NSFont.systemFont(ofSize: 13, weight: .medium)
         durationLabel.alignment = .center
 
         durationSlider = NSSlider(value: 30, minValue: 10, maxValue: 300, target: self,
-                                  action: #selector(durationChanged))
-        durationSlider.numberOfTickMarks = 0
+                                  action: #selector(optionsChanged))
         durationSlider.translatesAutoresizingMaskIntoConstraints = false
-        durationSlider.widthAnchor.constraint(equalToConstant: 320).isActive = true
+        durationSlider.widthAnchor.constraint(equalToConstant: 340).isActive = true
 
         startButton = NSButton(title: "Start Cleaning", target: self,
                                action: #selector(startCleaning))
@@ -252,49 +315,94 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         startButton.keyEquivalent = "\r"
         startButton.controlSize = .large
 
-        let stack = NSStackView(views: [heading, blurb, durationLabel, durationSlider, startButton])
+        let checks = NSStackView(views: [keyboardCheck, trackpadCheck, timerCheck])
+        checks.orientation = .vertical
+        checks.alignment = .leading
+        checks.spacing = 8
+
+        let stack = NSStackView(views: [
+            heading, blurb, checks, durationSlider, durationLabel, startButton
+        ])
         stack.orientation = .vertical
         stack.alignment = .centerX
-        stack.spacing = 18
+        stack.spacing = 16
         stack.translatesAutoresizingMaskIntoConstraints = false
         root.addSubview(stack)
         NSLayoutConstraint.activate([
             stack.centerXAnchor.constraint(equalTo: root.centerXAnchor),
             stack.centerYAnchor.constraint(equalTo: root.centerYAnchor),
-            stack.leadingAnchor.constraint(greaterThanOrEqualTo: root.leadingAnchor, constant: 20),
-            stack.trailingAnchor.constraint(lessThanOrEqualTo: root.trailingAnchor, constant: -20)
+            stack.leadingAnchor.constraint(greaterThanOrEqualTo: root.leadingAnchor, constant: 24),
+            stack.trailingAnchor.constraint(lessThanOrEqualTo: root.trailingAnchor, constant: -24)
         ])
 
         window.contentView = root
         window.makeKeyAndOrderFront(nil)
-        updateDurationLabel()
+        refreshControls()
     }
 
-    @objc private func durationChanged() {
-        updateDurationLabel()
+    @objc private func optionsChanged() {
+        refreshControls()
     }
 
-    private func updateDurationLabel() {
-        durationLabel.stringValue = "Auto re-enable after \(formatTime(Int(durationSlider.doubleValue)))"
+    private func refreshControls() {
+        let timerOn = timerCheck.state == .on
+        durationSlider.isEnabled = timerOn
+        if timerOn {
+            durationLabel.stringValue = "Re-enables after \(formatTime(Int(durationSlider.doubleValue)))"
+            durationLabel.textColor = .labelColor
+        } else {
+            durationLabel.stringValue = "No time limit — stop with Esc or the Stop button"
+            durationLabel.textColor = .secondaryLabelColor
+        }
+        // Need at least one device selected to start.
+        startButton.isEnabled = keyboardCheck.state == .on || trackpadCheck.state == .on
     }
 
     // MARK: Cleaning session
 
     @objc private func startCleaning() {
+        let blockKeyboard = keyboardCheck.state == .on
+        let blockMouse = trackpadCheck.state == .on
+        guard blockKeyboard || blockMouse else { return }
         guard ensureAccessibilityPermission() else { return }
 
+        blocker.blockKeyboard = blockKeyboard
+        blocker.blockMouse = blockMouse
         guard blocker.start() else {
             presentError("Couldn't disable input. Make sure KleanKeyboard has " +
                          "Accessibility permission in System Settings.")
             return
         }
 
-        remainingSeconds = Int(durationSlider.doubleValue)
-        window.orderOut(nil)
-        overlay.show(remainingText: formatTime(remainingSeconds))
+        // The Stop button is only useful when the mouse still works.
+        let showStopButton = !blockMouse
+        let useTimer = timerCheck.state == .on
 
-        countdownTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
-            self?.tick()
+        var ways = ["press Esc"]
+        if showStopButton { ways.append("click Stop") }
+        let hint = "To re-enable: " + ways.joined(separator: " or ") + "."
+
+        let countdownText: String?
+        if useTimer {
+            remainingSeconds = Int(durationSlider.doubleValue)
+            countdownText = formatTime(remainingSeconds)
+        } else {
+            countdownText = nil
+        }
+
+        window.orderOut(nil)
+        overlay.show(
+            title: disabledTitle(keyboard: blockKeyboard, mouse: blockMouse),
+            hint: hint,
+            countdownText: countdownText,
+            showStopButton: showStopButton,
+            onStop: { [weak self] in self?.stopCleaning() }
+        )
+
+        if useTimer {
+            countdownTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+                self?.tick()
+            }
         }
     }
 
@@ -317,6 +425,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     // MARK: Permissions / helpers
+
+    private func disabledTitle(keyboard: Bool, mouse: Bool) -> String {
+        switch (keyboard, mouse) {
+        case (true, true):  return "Keyboard & Trackpad Disabled"
+        case (true, false): return "Keyboard Disabled"
+        case (false, true): return "Trackpad & Mouse Disabled"
+        default:            return "Input Disabled"
+        }
+    }
 
     private func ensureAccessibilityPermission() -> Bool {
         // Stable documented value of kAXTrustedCheckOptionPrompt; used directly to

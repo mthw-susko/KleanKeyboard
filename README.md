@@ -9,14 +9,23 @@ When you start a cleaning session, the app installs a [`CGEventTap`](https://dev
 that swallows every keyboard, mouse, trackpad and gesture event. A full-screen
 overlay shows a countdown so you know it's active.
 
-To re-enable input you have two options (this mirrors how the popular
-[KeyboardCleanTool](https://folivora.ai/keyboardcleantool) works):
+You choose what to disable and how it re-enables:
 
-- **Press `Esc`** — caught by the app and never passed through to other apps.
-- **Wait for the countdown** — input re-enables automatically (10s–5min, your choice).
+**What to disable**
+- **Keyboard** only,
+- **Trackpad & mouse** only, or
+- **both** (default).
 
-Because both the keyboard and trackpad are disabled, `Esc` is the deliberate
-unlock key: it's a single, easy-to-find key and the app intercepts it directly.
+**How to re-enable** (any of these, whichever applies)
+- **Press `Esc`** — always works; caught by the app and never passed to other apps.
+- **Click the Stop button** — shown in the overlay whenever the mouse stays
+  enabled (i.e. "keyboard only" mode). This is the no-time-limit mouse mode:
+  disable just the keyboard and click Stop when you're done.
+- **Wait for the countdown** — optional auto re-enable (10s–5min). Turn it off
+  for no time limit.
+
+This mirrors how the popular [KeyboardCleanTool](https://folivora.ai/keyboardcleantool)
+works (Esc to unlock), with selective toggles added.
 
 ## Building
 
@@ -46,10 +55,12 @@ rebuilds.
 ## Usage
 
 1. Launch KleanKeyboard.
-2. Pick how long the session should last (auto re-enable safety net).
-3. Click **Start Cleaning**. The screen dims and input is disabled.
-4. Clean your keyboard and trackpad.
-5. Press **`Esc`** when done (or let the timer run out).
+2. Tick what you want to disable: **keyboard**, **trackpad & mouse**, or both.
+3. Optionally enable **Auto re-enable** and pick a time limit (or leave it off
+   for no time limit).
+4. Click **Start Cleaning**. The screen dims and the chosen input is disabled.
+5. Clean away, then re-enable by pressing **`Esc`**, clicking **Stop** (mouse
+   mode), or letting the timer run out.
 
 ## App icon
 

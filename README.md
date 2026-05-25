@@ -29,6 +29,9 @@ You choose what to disable and how it re-enables:
 To avoid locking yourself out, the app won't start unless at least one stop
 method is available (Esc, a time limit, or the mouse staying enabled).
 
+Your choices (which devices, Esc, timer, duration) are remembered and restored
+the next time you launch the app.
+
 This mirrors how the popular [KeyboardCleanTool](https://folivora.ai/keyboardcleantool)
 works (Esc to unlock), with selective toggles added.
 

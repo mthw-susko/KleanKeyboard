@@ -236,9 +236,18 @@ final class OverlayController {
 
 // MARK: - App
 
+private enum SettingsKey {
+    static let blockKeyboard = "blockKeyboard"
+    static let blockMouse = "blockMouse"
+    static let allowEsc = "allowEsc"
+    static let useTimer = "useTimer"
+    static let duration = "durationSeconds"
+}
+
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private let blocker = InputBlocker()
     private let overlay = OverlayController()
+    private let defaults = UserDefaults.standard
 
     private var window: NSWindow!
     private var blurb: NSTextField!
@@ -256,6 +265,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
+        defaults.register(defaults: [
+            SettingsKey.blockKeyboard: true,
+            SettingsKey.blockMouse: true,
+            SettingsKey.allowEsc: true,
+            SettingsKey.useTimer: true,
+            SettingsKey.duration: 30.0
+        ])
         buildMainWindow()
         blocker.onUnlockRequested = { [weak self] in
             self?.stopCleaning()
@@ -294,25 +310,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         keyboardCheck = NSButton(checkboxWithTitle: "Disable keyboard",
                                  target: self, action: #selector(optionsChanged))
-        keyboardCheck.state = .on
+        keyboardCheck.state = defaults.bool(forKey: SettingsKey.blockKeyboard) ? .on : .off
 
         trackpadCheck = NSButton(checkboxWithTitle: "Disable trackpad & mouse",
                                  target: self, action: #selector(optionsChanged))
-        trackpadCheck.state = .on
+        trackpadCheck.state = defaults.bool(forKey: SettingsKey.blockMouse) ? .on : .off
 
         escCheck = NSButton(checkboxWithTitle: "Allow Esc to re-enable",
                             target: self, action: #selector(optionsChanged))
-        escCheck.state = .on
+        escCheck.state = defaults.bool(forKey: SettingsKey.allowEsc) ? .on : .off
 
         timerCheck = NSButton(checkboxWithTitle: "Auto re-enable after a time limit",
                               target: self, action: #selector(optionsChanged))
-        timerCheck.state = .on
+        timerCheck.state = defaults.bool(forKey: SettingsKey.useTimer) ? .on : .off
 
         durationLabel = NSTextField(labelWithString: "")
         durationLabel.font = NSFont.systemFont(ofSize: 13, weight: .medium)
         durationLabel.alignment = .center
 
-        durationSlider = NSSlider(value: 30, minValue: 10, maxValue: 300, target: self,
+        durationSlider = NSSlider(value: defaults.double(forKey: SettingsKey.duration),
+                                  minValue: 10, maxValue: 300, target: self,
                                   action: #selector(optionsChanged))
         durationSlider.translatesAutoresizingMaskIntoConstraints = false
         durationSlider.widthAnchor.constraint(equalToConstant: 340).isActive = true
@@ -355,7 +372,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func optionsChanged() {
+        saveSettings()
         refreshControls()
+    }
+
+    private func saveSettings() {
+        defaults.set(keyboardCheck.state == .on, forKey: SettingsKey.blockKeyboard)
+        defaults.set(trackpadCheck.state == .on, forKey: SettingsKey.blockMouse)
+        defaults.set(escCheck.state == .on, forKey: SettingsKey.allowEsc)
+        defaults.set(timerCheck.state == .on, forKey: SettingsKey.useTimer)
+        defaults.set(durationSlider.doubleValue, forKey: SettingsKey.duration)
     }
 
     private func refreshControls() {
